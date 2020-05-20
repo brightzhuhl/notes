@@ -262,7 +262,7 @@ synchronized使用的锁是存在于Java对象头中的。如果对象那个是�
 
 大多数情况下，锁不存在多线程竞争，总是由同一个线程多次获得，为了让线程获得锁的代价更低而引入了偏向锁
 
-![](/Users/zhlzzzzz/Downloads/epub_681633_14.jpeg)
+![](https://raw.githubusercontent.com/zhlzzzzz/notes/master/epub_681633_14.jpeg)
 
 ##### 轻量级锁
 
@@ -276,7 +276,7 @@ synchronized使用的锁是存在于Java对象头中的。如果对象那个是�
 
 轻量级锁解锁时，会使用院子的CAS操作将Displaced Mark Word替换回到对象头重，如果成功，表示没有竞争发生。如果失败，表示当前锁存在竞争，锁就会膨胀为重量级锁。
 
-![epub_681633_15](/Users/zhlzzzzz/Downloads/epub_681633_15.jpeg)
+![](https://raw.githubusercontent.com/zhlzzzzz/notes/master/epub_681633_15.jpeg)
 
 ##### 重量级锁
 
@@ -410,13 +410,107 @@ jvm内存主要有三大区域：堆、栈和方法区；其中栈分为本地�
 
 ### 性能优化和分布式
 
-#### InnoDB集群
+### InnoDB集群
 
-##### 简介
+#### 简介
 
 InnoDB集群提供了完整的MySQL高可用解决方案。MySQL Shell包括提供了AdminAPI可以轻松配置和管理一组包括至少三个MySQL服务器的InnoDB集群。每个MySQL实例运行着MySQL Group Replication，它提供了一种在InnoDB集群间复制数据的机制，而且内建了故障转移能力。MySQL Router可以给予部署的集群进行自动配置，透明地将客户端程序连接到服务器。当集群中的实例遇到不可预料的错误时，集群回自动重新配置。在默认的单主模式中，InnoDB集群有一个可读写的主节点。多个副节点作为主节点的备份。如果主节点失败，那么会有一个副节点晋升为主节点。MySQL Router会检测到这个情况并且将客户端实例重定向到新的主节点。
 
-#### 读写分离
+#### **InnoDB体系结构**
+
+![](https://raw.githubusercontent.com/zhlzzzzz/notes/master/innodb_cluster_overview.png)
+
+#### AdminAPI
+
+MySQL Shell包括了AdminApi，可以通过`dba`全局变量和它的相关方法来访问。`dba`变量的方法允许你部署、配置和管理InnoDB集群。例如，使用`dba.createCluster()`方法可以创建InnoDB集群。
+
+MySQL Shell为AdminAPI提供了在线帮助。要列出所有可用的dba命令，可以使用dba.help()方法。要获取特定方法的在线帮助，使用`object.help('methodName')`。例如：
+
+```shell
+mysql-js> dba.help('getCluster')
+
+Retrieves a cluster from the Metadata Store.
+
+SYNTAX
+
+  dba.getCluster([name][, options])
+
+WHERE
+
+  name: Parameter to specify the name of the cluster to be returned.
+  options: Dictionary with additional options.
+
+RETURNS
+
+  The cluster object identified by the given name or the default cluster.
+
+DESCRIPTION
+
+If name is not specified or is null, the default cluster will be returned.
+
+If name is specified, and no cluster with the indicated name is found, an error
+will be raised.
+
+The options dictionary accepts the connectToPrimary option,which defaults to
+true and indicates the shell to automatically connect to the primary member of
+the cluster.
+
+EXCEPTIONS
+
+  MetadataError in the following scenarios:
+
+   - If the Metadata is inaccessible.
+   - If the Metadata update operation failed.
+
+  ArgumentError in the following scenarios:
+
+   - If the Cluster name is empty.
+   - If the Cluster name is invalid.
+   - If the Cluster does not exist.
+
+  RuntimeError in the following scenarios:
+
+   - If the current connection cannot be used for Group Replication.
+```
+
+#### 创建InnoDB集群
+
+##### 部署场景
+
+InnoDB 集群支持下列部署场景：
+
+-  生产部署：如果你想在完全的生产环境中使用InnoDB集群，你需要配置所需数量的机器然后部署服务实例到机器上。生产部署允许你利用到InnoDB集群高可用能力的全部潜力。
+- 沙盒部署：如果你想在提交到完全的生产环境之前测试InnoDB集群，沙盒部署的特性允许你在本地机器快速设置集群。沙盒实例以所需的配置创建
+
+**注意：沙盒部署不适合在完全的生产环境中使用**
+
+##### InnoDB集群所需条件
+
+在安装InnoDB集群的生产部署之前，确保这些服务实例满足下列要求：
+
+- InnoDB集群使用Group Replication，因此你的服务实例必须满足同样的要求。AdminAPI提供了`dba.checkInstanceConfiguration()`方法来验证实例是否满足Group Replication的要求，`dba.configurationInstance()`方法可以配置实例来满足所需要求。
+
+  **注意：当使用沙盒部署时实例将自动配置为满足所需要求**
+
+- Group Replication成员可以包含使用InnoDB引擎以外的表，例如MyISAM。这些表不能通过Group Replication写入，因此当使用InnoDB集群时，为了这些表可以通过InnoDB集群写入，要将这些表转为InnoDB引擎。
+
+- 必须启用Perfomance Shema
+
+- MySQL Shell用来配置InnoDB集群的脚本需要访问Python。Windows MySQL Shell包含了Python因此不需要额外的用户配置。在Unix中Python必须作为shell环境的一部分。要检测你的系统是否正确配置了Python可以执行：
+
+  ```/usr/bin/env Python```
+
+- 从8.0.17版本开始，InnoDB集群的实例必须使用唯一的server_id。当你使用`Cluster.addInstance(instance)`操作时，如果实例的server_id已在集群中使用，那么操作将失败。
+
+##### 安装方法
+
+安装InnoDB集群的方法取决于你想要的部署类型。沙盒部署将所有InnoDB集群的所有组件安装到单个机器上，只需要在本地机器执行一次安装即可。生产部署的安装需要在集群的每一台机器中执行一次。以下的安装InnoDB集群的方法都是可用的：
+
+- 下载和安装下列组件
+  -  MySQL Server
+  - MySQL Shell
+  - MySQL Router
+- 在Windows上你可以使用沙盒部署的Windows MySQL Installer
 
 ## Redis
 
