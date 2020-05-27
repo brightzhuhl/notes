@@ -867,6 +867,8 @@ RabbitMQ是世界范围内使用最广泛的开源消息代理，采用Erlang编
 
 ## Linux
 
+iptables和firewall
+
 ### 常用命令
 
 ## 分布式架构
